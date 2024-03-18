@@ -1,6 +1,6 @@
 import puppeteer, { Browser, ElementHandle, JSHandle } from "puppeteer";
 import fs from "node:fs/promises";
-import { parallelProcessor } from "./utils";
+import { parallelProcessor, asyncFilter, deleteFileIfExists } from "./utils";
 import { link } from "node:fs";
 
 type WebsiteLogo = {
@@ -8,16 +8,6 @@ type WebsiteLogo = {
   logoUrls: string;
 };
 
-//helps to filter the array with async predicate functions
-const asyncFilter = async <T>(
-  arr: T[],
-  predicate: (node: T) => Promise<boolean>,
-) =>
-  Promise.all(arr.map(predicate)).then((results) =>
-    arr.filter((_v, index) => results[index]),
-  );
-
-//TODO: read from stdin instead of file
 async function getWebsiteAdresses(filepath: string) {
   const fileContent = await fs.readFile(filepath, "utf-8");
   return fileContent.split("\n");
@@ -78,11 +68,32 @@ async function getWebsiteLogoUrl(
 }
 
 (async () => {
+  let args = process.argv.slice(3);
+
+  if (args.length !== 1) {
+    console.log(args);
+    console.error("please provide the number of concurrent websites requests");
+    process.exit(1);
+  }
+
+  const concurrentRequests = parseInt(args[0]);
+
   const websiteAdresses = (await getWebsiteAdresses("./websites.csv")).filter(
     (url) => url !== "",
   );
 
-  console.log("start processing of", websiteAdresses.length, "websites");
+  console.log(
+    `processing ${websiteAdresses.length} websites with batch size of ${concurrentRequests}`,
+  );
+
+  if (concurrentRequests >= 250) {
+    console.log(
+      "this number of concurrent requests might use up all your memory or get you rate limited by the websites, are you sure you want to continue? the process will start in 10 seconds",
+    );
+    console.log("press ctrl+c to cancel");
+
+    await new Promise((resolve) => setTimeout(resolve, 10000));
+  }
 
   const browser = await puppeteer.launch({
     //this also supposedly helps to avoid bot detection
@@ -97,7 +108,7 @@ async function getWebsiteLogoUrl(
   const links = await parallelProcessor(
     websiteAdresses,
     (url) => getWebsiteLogoUrl(url, browser),
-    100,
+    concurrentRequests,
   );
   let endTime = Date.now();
 
@@ -111,7 +122,8 @@ async function getWebsiteLogoUrl(
 
   console.log("writing to file");
 
-  //TODO: write to stdout instead of file
+  await deleteFileIfExists("./logos.csv");
+
   for (const link of links) {
     await fs.appendFile("./logos.csv", `${link.url},${link.logoUrls}\n`);
   }

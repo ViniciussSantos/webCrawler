@@ -1,3 +1,5 @@
+import fs from "fs";
+
 export async function parallelProcessor<T, R>(
   arr: T[],
   fn: (element: T) => Promise<R>,
@@ -25,4 +27,25 @@ export async function asyncFilter<T>(
 ): Promise<T[]> {
   const results = await Promise.all(arr.map(predicate));
   return arr.filter((_v, index) => results[index]);
+}
+
+export async function deleteFileIfExists(filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    fs.access(filePath, fs.constants.F_OK, (err) => {
+      if (err) {
+        resolve();
+      } else {
+        console.log(
+          `there is another file called ${filePath}, deleting it to avoid conflicts`,
+        );
+        fs.unlink(filePath, (deleteErr) => {
+          if (deleteErr) {
+            reject(deleteErr);
+          } else {
+            resolve();
+          }
+        });
+      }
+    });
+  });
 }
